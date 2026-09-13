@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>티켓팅 서버시계</title>
+<style>
+:root{--bg:#0b0c10;--card:#15171e;--line:#252833;--txt:#e9ecf2;--dim:#8b90a0;--blue:#4154ff;--red:#ff322e;--grn:#22c55e;--gold:#f0b429}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{background:var(--bg);color:var(--txt);font:15px/1.5 -apple-system,"Malgun Gothic",system-ui,sans-serif;
+  padding:calc(env(safe-area-inset-top) + 10px) 14px calc(env(safe-area-inset-bottom) + 14px);
+  display:flex;flex-direction:column;gap:12px;overflow:hidden;-webkit-user-select:none;user-select:none}
+
+.clock{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px 14px;text-align:center}
+.lbl{color:var(--dim);font-size:12px;letter-spacing:.5px}
+#now{font:800 clamp(40px,14vw,72px)/1 ui-monospace,"Menlo",monospace;font-variant-numeric:tabular-nums;margin-top:4px;letter-spacing:1px}
+#now .ms{color:var(--blue);font-size:.5em}
+.pills{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--dim)}
+.pill{background:#1b1e27;border:1px solid var(--line);border-radius:99px;padding:4px 10px}
+.pill b{color:var(--txt)}.pill.ok b{color:var(--grn)}.pill.warn b{color:var(--gold)}
+
+.cd{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px 14px;text-align:center;flex:1;display:flex;flex-direction:column;justify-content:center}
+#cd{font:800 clamp(52px,20vw,110px)/1 ui-monospace,"Menlo",monospace;font-variant-numeric:tabular-nums;letter-spacing:1px}
+#cd.near{color:var(--gold)}#cd.hot{color:var(--red)}#cd.go{color:var(--grn)}
+#bar{height:8px;background:#1b1e27;border-radius:99px;overflow:hidden;margin-top:14px}
+#barIn{height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--grn))}
+#cdlbl{color:var(--dim);font-size:12px;margin-top:10px}
+
+.ctl{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row label{color:var(--dim);font-size:12px;min-width:52px}
+select,input{background:#1b1e27;color:var(--txt);border:1px solid var(--line);border-radius:9px;padding:9px 10px;font:inherit;font-size:15px}
+input[type=time]{flex:1}
+input[type=number]{width:74px}
+button{background:var(--blue);color:#fff;border:0;border-radius:9px;padding:10px 14px;font:inherit;font-weight:700;font-size:14px}
+button.g{background:#1b1e27;border:1px solid var(--line);color:var(--txt)}
+.chk{display:flex;align-items:center;gap:6px;color:var(--dim);font-size:12px}
+.chk input{width:20px;height:20px}
+.note{color:var(--dim);font-size:11px;line-height:1.6}
+.err{color:var(--red);font-size:12px;min-height:16px}
+</style>
+</head>
+<body>
+
+<div class="clock">
+  <div class="lbl" id="dateTxt">서버 시각 (인터파크 기준)</div>
+  <div id="now">--:--:--<span class="ms">.---</span></div>
+  <div class="pills">
+    <span class="pill" id="pSync">동기화 <b>—</b></span>
+    <span class="pill" id="pRtt">왕복 <b>—</b></span>
+    <span class="pill" id="pAdj">보정 <b>0</b></span>
+  </div>
+</div>
+
+<div class="cd">
+  <div id="cd">--:--.---</div>
+  <div id="bar"><div id="barIn"></div></div>
+  <div id="cdlbl">목표까지</div>
+</div>
+
+<div class="ctl">
+  <div class="row">
+    <label>목표</label>
+    <input type="time" id="tt" step="1" value="12:00:00">
+    <select id="preset" class="g">
+      <option value="">직접</option>
+      <option value="12:00:00" selected>12:00:00</option>
+      <option value="+30">30초뒤(연습)</option>
+      <option value="+60">1분뒤(연습)</option>
+    </select>
+  </div>
+  <div class="row">
+    <button class="g" id="sync">지금 재동기화</button>
+    <label class="chk"><input type="checkbox" id="beep" checked>소리</label>
+    <label class="chk"><input type="checkbox" id="vib" checked>진동</label>
+    <button class="g" id="advBtn" style="margin-left:auto">미세조정 ▾</button>
+  </div>
+  <div class="row" id="advRow" style="display:none">
+    <label>보정ms</label>
+    <input type="number" id="adj" value="0" step="1">
+    <span class="note" style="flex:1">time.is와 나란히 놓고 차이가 나면 그 값을 넣으세요 (평소엔 0)</span>
+  </div>
+  <button id="pip">📌 영상으로 화면 위에 띄우기 (PiP)</button>
+  <div class="err" id="err"></div>
+  <div class="note">
+    · 시간원: <b>time.akamai.com</b> — 인터파크가 쓰는 CDN과 같은 곳입니다. 왕복시간을 자동 보정하므로 <b>따로 맞출 것 없이</b> 켜면 바로 인터파크 시각입니다.<br>
+    · 목표 10초 전부터 자주 재동기화하고 3·2·1초에 소리·진동 신호가 옵니다.<br>
+    · 화면 안 꺼지게 자동잠금은 <b>안 함</b>으로 해두세요. (설정→디스플레이)
+  </div>
+</div>
+
+<canvas id="pcv" width="360" height="150" style="display:none"></canvas>
+<video id="pv" muted playsinline style="display:none"></video>
+
+<script>
+let offset=0, rtt=999, lastSync=0, syncing=false, pool=[], target=null, beeped={};
+const $=id=>document.getElementById(id);
+const pad=(n,w=2)=>String(Math.floor(n)).padStart(w,"0");
+const adj=()=>parseFloat($("adj").value)||0;
+const serverNow=()=>Date.now()+offset+adj();
+
+/* ---- Akamai 동기화 (NTP식: 왕복 최소 샘플 중앙값) ---- */
+async function sample(){
+  const t0=performance.timeOrigin+performance.now();
+  const r=await fetch("https://time.akamai.com/?ms",{cache:"no-store"});
+  const t1=performance.timeOrigin+performance.now();
+  const srv=parseFloat((await r.text()).trim())*1000;
+  return {off:srv-(t0+(t1-t0)/2), rtt:t1-t0, at:t1};
+}
+async function sync(n=6){
+  if(syncing) return; syncing=true;
+  try{
+    const got=[];
+    for(let i=0;i<n;i++){ try{got.push(await sample());}catch(e){} await new Promise(r=>setTimeout(r,120)); }
+    if(!got.length){ $("err").textContent="시간 동기화 실패 — 인터넷 확인"; return; }
+    const now=Date.now();
+    // 시계 점프 감지
+    if(pool.length){ const fresh=[...got].sort((a,b)=>a.rtt-b.rtt)[0].off; if(Math.abs(fresh-offset)>60) pool=[]; }
+    pool.push(...got); pool=pool.filter(s=>now-s.at<120000);
+    const best=[...pool].sort((a,b)=>a.rtt-b.rtt).slice(0,7);
+    const offs=best.map(s=>s.off).sort((a,b)=>a-b);
+    offset=offs[Math.floor(offs.length/2)];
+    rtt=Math.round(best[0].rtt); lastSync=now; $("err").textContent="";
+  } finally { syncing=false; }
+}
+sync(8);
+setInterval(()=>{ const left=target?target-serverNow():1e9;
+  const iv=left<=10000?2000:left<=60000?5000:15000;
+  if(Date.now()-lastSync>=iv) sync(left<=10000?3:5);
+},1000);
+$("sync").onclick=()=>sync(7);
+$("advBtn").onclick=()=>{ const r=$("advRow"); const on=r.style.display==="none"; r.style.display=on?"flex":"none"; $("advBtn").textContent="미세조정 "+(on?"▴":"▾"); };
+
+/* ---- 목표 ---- */
+function calcTarget(){
+  const v=$("preset").value;
+  if(v.startsWith("+")){ target=serverNow()+(+v.slice(1))*1000; beeped={}; return; }
+  const [h,m,s]=$("tt").value.split(":").map(Number);
+  const d=new Date(serverNow()); d.setHours(h,m,s||0,0);
+  let t=d.getTime(); if(t<serverNow()-1000) t+=86400000;
+  target=t; beeped={};
+}
+$("tt").onchange=()=>{ $("preset").value=""; calcTarget(); };
+$("preset").onchange=()=>{ const v=$("preset").value; if(v&&!v.startsWith("+")) $("tt").value=v; calcTarget(); };
+calcTarget();
+
+/* ---- 신호 ---- */
+let actx=null;
+function beep(f,d){ if(!$("beep").checked) return;
+  try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)();
+    if(actx.state==="suspended") actx.resume();
+    const o=actx.createOscillator(),g=actx.createGain(); o.frequency.value=f; o.connect(g); g.connect(actx.destination);
+    g.gain.setValueAtTime(.25,actx.currentTime); g.gain.exponentialRampToValueAtTime(.001,actx.currentTime+d);
+    o.start(); o.stop(actx.currentTime+d);
+  }catch(e){}
+}
+function vibe(ms){ if($("vib").checked && navigator.vibrate) navigator.vibrate(ms); }
+
+/* ---- PiP (영상 canvas 스트림) ---- */
+const cv=$("pcv"), cx=cv.getContext("2d"), pv=$("pv");
+let pipOn=false;
+function drawPip(){
+  cx.fillStyle="#0b0c10"; cx.fillRect(0,0,cv.width,cv.height);
+  const t=serverNow(), d=new Date(t);
+  cx.textAlign="center"; cx.fillStyle="#8b90a0"; cx.font="600 15px -apple-system,sans-serif";
+  cx.fillText("서버시각", cv.width/2, 22);
+  cx.fillStyle="#e9ecf2"; cx.font="700 30px ui-monospace,Menlo,monospace";
+  cx.fillText(`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(),3)}`, cv.width/2, 56);
+  if(target){
+    const left=target-t;
+    let col=left<=0?"#22c55e":left<=3000?"#ff322e":left<=10000?"#f0b429":"#4154ff";
+    cx.fillStyle=col; cx.font="800 56px ui-monospace,Menlo,monospace";
+    if(left>0){ const m=left/60000,s=left%60000/1000,ms=left%1000;
+      cx.fillText(`${pad(m)}:${pad(s)}.${pad(ms,3)}`, cv.width/2, 120); }
+    else cx.fillText("00:00.000", cv.width/2, 120);
+  }
+  if(pipOn) requestAnimationFrame(drawPip);
+}
+$("pip").onclick=async()=>{
+  try{
+    if(document.pictureInPictureElement){ await document.exitPictureInPicture(); return; }
+    if(!pv.srcObject){ pv.srcObject=cv.captureStream(30); await pv.play(); }
+    pipOn=true; drawPip();
+    await pv.requestPictureInPicture();
+    $("pip").textContent="📌 PiP 끄기";
+    pv.addEventListener("leavepictureinpicture",()=>{ pipOn=false; $("pip").textContent="📌 영상으로 화면 위에 띄우기 (PiP)"; },{once:true});
+  }catch(e){ $("err").textContent="PiP 미지원 — 이 화면 그대로 크게 쓰세요 ("+e.message+")"; }
+};
+
+/* ---- 렌더 ---- */
+const DAY=["일","월","화","수","목","금","토"];
+function frame(){
+  const t=serverNow(), d=new Date(t);
+  $("dateTxt").textContent=`${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())} (${DAY[d.getDay()]}) 서버시각`;
+  $("now").innerHTML=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}<span class="ms">.${pad(d.getMilliseconds(),3)}</span>`;
+  const age=(Date.now()-lastSync)/1000;
+  $("pSync").className="pill "+(lastSync&&age<20?"ok":"warn");
+  $("pSync").innerHTML=`동기화 <b>${lastSync?age.toFixed(0)+"초 전":"..."}</b>`;
+  $("pRtt").innerHTML=`왕복 <b>${rtt}ms</b>`;
+  $("pAdj").innerHTML=`보정 <b>${adj()>=0?"+":""}${adj()}</b>`;
+  if(target){
+    const left=target-t, cd=$("cd");
+    cd.className=left<=0?"go":left<=3000?"hot":left<=10000?"near":"";
+    if(left>0){ const m=left/60000,s=left%60000/1000,ms=left%1000;
+      cd.textContent=`${pad(m)}:${pad(s)}.${pad(ms,3)}`;
+      $("barIn").style.width=Math.max(0,Math.min(100,(1-left/60000)*100))+"%";
+      [3,2,1].forEach(k=>{ if(left<=k*1000&&left>k*1000-110&&!beeped[k]){beeped[k]=1;beep(880,.09);vibe(60);} });
+    } else { cd.textContent="00:00.000"; $("barIn").style.width="100%";
+      if(!beeped[0]){beeped[0]=1;beep(1320,.4);vibe([80,40,120]);} }
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* 화면 안 꺼지게 (지원 시) */
+if("wakeLock" in navigator){ let wl=null;
+  const req=async()=>{try{wl=await navigator.wakeLock.request("screen");}catch(e){}};
+  req(); document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")req();});
+}
+</script>
+</body>
+</html>
