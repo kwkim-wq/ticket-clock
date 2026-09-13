@@ -84,6 +84,8 @@ button.g{background:#1b1e27;border:1px solid var(--line);color:var(--txt)}
     <span class="note" style="flex:1">time.is와 나란히 놓고 차이가 나면 그 값을 넣으세요 (평소엔 0)</span>
   </div>
   <button id="pip">📌 영상으로 화면 위에 띄우기 (PiP)</button>
+  <button id="diag" style="background:#2a2414;color:var(--gold);border:1px solid #4a3f1a">🔍 측정해서 클로드에게 전송</button>
+  <div id="diagOut" class="note" style="display:none;background:#1b1e27;border:1px solid var(--line);border-radius:9px;padding:10px;font-size:13px;color:var(--txt);word-break:break-all"></div>
   <div class="err" id="err"></div>
   <div class="note">
     · 시간원: <b>time.akamai.com</b> — 인터파크가 쓰는 CDN과 같은 곳입니다. 왕복시간을 자동 보정하므로 <b>따로 맞출 것 없이</b> 켜면 바로 인터파크 시각입니다.<br>
@@ -214,6 +216,50 @@ function frame(){
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+/* ---- 측정 → 클로드 전송 ---- */
+$("diag").onclick=async()=>{
+  const out=$("diagOut"); out.style.display="block";
+  out.textContent="측정 중… 폰을 그대로 두세요 (약 6초)";
+  const AK="https://time.akamai.com/?ms";
+  const rows=[];
+  for(let i=0;i<14;i++){
+    try{
+      const t0=performance.timeOrigin+performance.now();
+      const r=await fetch(AK,{cache:"no-store"});
+      const t1=performance.timeOrigin+performance.now();
+      const srv=parseFloat((await r.text()).trim())*1000;
+      const half=(t1-t0)/2;
+      rows.push({rtt:Math.round(t1-t0), off:+(srv-(t0+half)).toFixed(1)});
+    }catch(e){ rows.push({err:String(e.message||e)}); }
+    await new Promise(r=>setTimeout(r,300));
+  }
+  const ok=rows.filter(r=>r.off!=null).sort((a,b)=>a.rtt-b.rtt);
+  const best=ok.slice(0,7);
+  const offs=best.map(r=>r.off).sort((a,b)=>a-b);
+  const med=offs.length?offs[Math.floor(offs.length/2)]:null;
+  const payload={
+    ts:new Date().toISOString(),
+    ua:navigator.userAgent,
+    net:(navigator.connection&&navigator.connection.effectiveType)||"?",
+    tzOffsetMin:new Date().getTimezoneOffset(),
+    appliedAdj:adj(),
+    medianOffsetMs:med,                 // 폰 시계 - 아카마이 (음수면 폰이 느림)
+    bestRttMs:best.length?best[0].rtt:null,
+    spreadMs:offs.length>1?+(offs[offs.length-1]-offs[0]).toFixed(1):0,
+    samples:rows
+  };
+  try{
+    const r=await fetch("https://dpaste.com/api/v2/",{
+      method:"POST",
+      body:new URLSearchParams({content:JSON.stringify(payload,null,1),syntax:"json",expiry_days:"1",title:"ticket-clock-diag"})
+    });
+    const url=(await r.text()).trim();
+    out.innerHTML=`✅ 전송 완료. 아래 주소를 클로드에게 그대로 붙여넣으세요:<br><b style="color:var(--gold);font-size:15px">${url}.txt</b><br><br>요약 — 폰시계 오차 중앙값 <b>${med}ms</b>, 최소왕복 <b>${best.length?best[0].rtt:'?'}ms</b>, 편차 <b>${payload.spreadMs}ms</b>, 회선 <b>${payload.net}</b>`;
+  }catch(e){
+    out.innerHTML=`전송 실패(${e.message}). 그래도 결과는 나왔어요 — 이 값을 클로드에게 불러주세요:<br>오차 중앙값 <b>${med}ms</b> / 최소왕복 <b>${best.length?best[0].rtt:'?'}ms</b> / 편차 <b>${payload.spreadMs}ms</b> / 회선 ${payload.net}`;
+  }
+};
 
 /* 화면 안 꺼지게 (지원 시) */
 if("wakeLock" in navigator){ let wl=null;
